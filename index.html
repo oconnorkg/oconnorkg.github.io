@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>WebGL Demo</title>
+    <!--link rel="stylesheet" href="../webgl.css" type="text/css"-->
+  </head>
+
+  <body>
+    <canvas id="glcanvas" width="1280" height="720"></canvas>
+    <br/>
+    <button onclick="showCube()">Cube</button>
+    <button onclick="showTetra()">Tetrahedron</button>
+    <br/>
+    <input type='text' id="socketAddress" value="ws://localhost:9008" />
+    <input type="submit" value="Connect" onclick="connectSocket(document.getElementById('socketAddress').value)"/>
+  </body>
+
+  <script src="http://mrdoob.github.io/stats.js/build/stats.min.js"></script>
+  <script src="gl-matrix.js"></script>
+  <script src="webgl.js"></script>
+
+</html>
