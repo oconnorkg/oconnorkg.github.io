@@ -3,7 +3,7 @@ var webSocket = null;
 
 var gl = null;
 var mvMatrix = mat4.create();
-var stats = null;
+//var stats = null;
 
 var g_vertexBuffer;
 var g_indexBuffer;
@@ -103,9 +103,9 @@ function connectSocket(addr)
 //
 function main() {
 
-  stats = new Stats();
-  stats.showPanel( 0 );
-  document.body.appendChild( stats.dom );
+  //stats = new Stats();
+  //stats.showPanel( 0 );
+  //document.body.appendChild( stats.dom );
   
   const canvas = document.querySelector('#glcanvas');
   gl = canvas.getContext('webgl');
@@ -200,7 +200,7 @@ function main() {
   // Draw the scene repeatedly
   var then = 0;
   function render(now) {
-    stats.begin();
+    //stats.begin();
     
     now *= 0.001;  // convert to seconds
     const deltaTime = now - then;
@@ -209,7 +209,7 @@ function main() {
 
     drawScene(gl, programInfo);
     
-    stats.end();
+    //stats.end();
     
     requestAnimationFrame(render);
   }
