@@ -14,9 +14,14 @@
     <br/>
     <input type='text' id="socketAddress" value="ws://localhost:9008" />
     <input type="submit" value="Connect" onclick="connectSocket(document.getElementById('socketAddress').value)"/>
+    <br/>
+    <p id="cs-latency"></p>
+    <p id="server-latency"></p>
+    <p id="net-latency"></p>
+    <p id="render-latency"></p>
   </body>
 
-  <!-- <script src="http://mrdoob.github.io/stats.js/build/stats.min.js"></script> -->
+  <script src="http://mrdoob.github.io/stats.js/build/stats.min.js"></script>
   <script src="gl-matrix.js"></script>
   <script src="webgl.js"></script>
 

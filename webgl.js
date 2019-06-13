@@ -3,15 +3,20 @@ var webSocket = null;
 
 var gl = null;
 var mvMatrix = mat4.create();
-//var stats = null;
+var projMatrix = mat4.create();
+var stats = null;
+var g_lastSentTimestamp = 0;
+var g_lastReceivedTimestamp = 0;
+var g_lastRenderedTimestamp = 0;
+var g_latencyDirty = false;
 
 var g_vertexBuffer;
 var g_indexBuffer;
 var g_indexCount = 0;
-var g_sizeofPos = 3*4;
-var g_sizeofNrm = 3*4;
-var g_sizeofCol = 1*4;
-var g_sizeofVertex = g_sizeofPos+g_sizeofNrm+g_sizeofCol;
+const g_sizeofPos = 3*4;
+const g_sizeofNrm = 3*4;
+const g_sizeofCol = 1*4;
+const g_sizeofVertex = g_sizeofPos+g_sizeofNrm+g_sizeofCol;
 
 main();
 
@@ -44,7 +49,19 @@ function connectSocket(addr)
     var view = new DataView(buff);
     var offset = 0;
     const nID = view.getInt32(offset, true); offset += 4;
-    
+    offset += 4; // pad
+    g_lastReceivedTimestamp = Number(view.getBigUint64(offset, true)); offset += 8;
+    const serverTimestamp1 = Number(view.getBigUint64(offset, true)); offset += 8;
+    const serverTimestamp2 = Number(view.getBigUint64(offset, true)); offset += 8;
+    g_latencyDirty = true;
+
+    {
+      const timeNow = (new Date()).getTime();
+      document.getElementById("cs-latency").innerHTML = "Client->Server Network Latency: " + (serverTimestamp1 - g_lastReceivedTimestamp) + "ms";
+      document.getElementById("server-latency").innerHTML = "Server Processing Time: " + (serverTimestamp2 - serverTimestamp1) + "ms";
+      document.getElementById("net-latency").innerHTML = "Round-trip Latency: " + (timeNow - g_lastReceivedTimestamp) + "ms";
+    }
+
     if (nID==0) { // replace all mesh data
       webSocket.send("got");
     
@@ -75,7 +92,13 @@ function connectSocket(addr)
         offset += 4;
       }
     }
-    else if (nID==2) {  // replace a region of the mesh data
+    else if (nID==2) { // replace proj matrix
+      for (let i=0; i<16; i++) {
+        projMatrix[i] = view.getFloat32(offset, true);
+        offset += 4;
+      }
+    }
+    else if (nID==3) {  // replace a region of the mesh data
       webSocket.send("gotregion");
     
       const nVertexOffset = view.getInt32(offset, true); offset += 4;
@@ -98,14 +121,93 @@ function connectSocket(addr)
   }
 }
 
+function initInput()
+{
+  class InputEvent {
+    constructor(type) {
+      this.timestamp = (new Date()).getTime();
+      this.keycode = 0;
+      this.x = 0;
+      this.y = 0;
+      this.type = type;
+      this.down = 0;
+
+      g_lastSentTimestamp = this.timestamp;
+    }
+  }
+
+  const mouseButtonToVTRMOUSEBUTTON = new Map([
+    [0, 0],
+    [1, 2],
+    [2, 1]
+  ]);
+
+  function sendInputEvent(inputEvent) {
+    if(webSocket.readyState == WebSocket.OPEN) {
+      let payload = new ArrayBuffer(24);
+      let view = new DataView(payload);
+      view.setBigUint64(0, BigInt(inputEvent.timestamp), true);
+      view.setUint32(8, inputEvent.keycode, true);
+      view.setInt16(12, inputEvent.x, true);
+      view.setInt16(14, inputEvent.y, true);
+      view.setUint8(16, inputEvent.type, true);
+      view.setUint8(17, inputEvent.down, true);
+      webSocket.send(payload);
+    }
+  }
+
+  document.addEventListener('keydown', e => { 
+    let ie = new InputEvent(0);
+    ie.keycode = e.keyCode;
+    ie.down = 1;
+    sendInputEvent(ie);
+  }, false);
+  document.addEventListener('keyup', e => {
+    let ie = new InputEvent(0);
+    ie.keycode = e.keyCode;
+    ie.down = 0;
+    sendInputEvent(ie);
+  }, false);
+  document.addEventListener('mousedown', e => { 
+    let ie = new InputEvent(1);
+    ie.keycode = mouseButtonToVTRMOUSEBUTTON.get(e.button);
+    ie.x = e.clientX;
+    ie.y = e.clientY;
+    ie.down = 1;
+    sendInputEvent(ie);
+  }, false);
+  document.addEventListener('mouseup', e => { 
+    let ie = new InputEvent(1);
+    ie.keycode = mouseButtonToVTRMOUSEBUTTON.get(e.button);
+    ie.x = e.clientX;
+    ie.y = e.clientY;
+    ie.down = 0;
+    sendInputEvent(ie);
+  }, false);
+  document.addEventListener('mousemove', e => {
+    let ie = new InputEvent(2);
+    ie.x = e.clientX;
+    ie.y = e.clientY;
+    sendInputEvent(ie);
+  }, false);
+  document.addEventListener('wheel', e => {
+    let ie = new InputEvent(3);
+    ie.y = -e.deltaY;
+    sendInputEvent(ie);
+  }, false);
+
+  // block right clicks bringing up a context menu
+  document.oncontextmenu = e => { return false; };
+}
+
 //
 // Start here
 //
 function main() {
 
-  //stats = new Stats();
-  //stats.showPanel( 0 );
-  //document.body.appendChild( stats.dom );
+  stats = new Stats();
+  stats.showPanel( 0 );
+  document.body.appendChild( stats.dom );
   
   const canvas = document.querySelector('#glcanvas');
   gl = canvas.getContext('webgl');
@@ -122,7 +224,8 @@ function main() {
     return;
   }
   
-  connectSocket("ws://localhost:9008")
+  connectSocket("ws://localhost:9008");
+  initInput();
 
   // Vertex shader program
   const vsSource = `
@@ -200,7 +303,7 @@ function main() {
   // Draw the scene repeatedly
   var then = 0;
   function render(now) {
-    //stats.begin();
+    stats.begin();
     
     now *= 0.001;  // convert to seconds
     const deltaTime = now - then;
@@ -209,7 +312,15 @@ function main() {
 
     drawScene(gl, programInfo);
     
-    //stats.end();
+    stats.end();
+  
+    // Not sure when the GPU might have actually finished rendering...
+    if(g_latencyDirty) {
+      const timeNow = (new Date()).getTime();
+      document.getElementById("render-latency").innerHTML = "Render Latency: " + (timeNow - g_lastReceivedTimestamp) + "ms";
+      g_lastRenderedTimestamp = g_lastReceivedTimestamp;
+      g_latencyDirty = false;
+    }
     
     requestAnimationFrame(render);
   }
@@ -228,26 +339,6 @@ function drawScene(gl, programInfo) {
   
   // Clear the canvas before we start drawing on it.
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  
-  // Create a perspective matrix, a special matrix that is
-  // used to simulate the distortion of perspective in a camera.
-  // Our field of view is 45 degrees, with a width/height
-  // ratio that matches the display size of the canvas
-  // and we only want to see objects between 0.1 units
-  // and 100 units away from the camera.
-  const fieldOfView = 45 * Math.PI / 180;   // in radians
-  const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
-  const zNear = 0.1;
-  const zFar = 10000.0;
-  const projectionMatrix = mat4.create();
-
-  // note: glmatrix.js always has the first argument
-  // as the destination to receive the result.
-  mat4.perspective(projectionMatrix,
-                   fieldOfView,
-                   aspect,
-                   zNear,
-                   zFar);
                    
   // Tell WebGL to use our program when drawing
   gl.useProgram(programInfo.program);
@@ -260,7 +351,7 @@ function drawScene(gl, programInfo) {
   gl.uniformMatrix4fv(
       programInfo.uniformLocations.projectionMatrix,
       false,
-      projectionMatrix);
+      projMatrix);
 
   if (g_indexCount && g_vertexBuffer && g_indexBuffer)
   {
