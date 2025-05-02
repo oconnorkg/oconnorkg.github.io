@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebGL2 3D Scene</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+  </style>
+</head>
+<body>
+  <canvas id="glcanvas"></canvas>
+  <script type="module">
+    import { mat4, vec3, vec4 } from 'https://cdn.jsdelivr.net/npm/gl-matrix@3.4.3/esm/index.js';
+
+    const canvas = document.getElementById('glcanvas');
+    const gl = canvas.getContext('webgl2');
+    if (!gl) { alert('WebGL2 not supported'); throw new Error(); }
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    function resize() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function loadShader(type, src) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+
+    function createProgram(vsSrc, fsSrc) {
+      const vs = loadShader(gl.VERTEX_SHADER, vsSrc);
+      const fs = loadShader(gl.FRAGMENT_SHADER, fsSrc);
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        console.error(gl.getProgramInfoLog(prog));
+        return null;
+      }
+      return prog;
+    }
+
+    const vsSource = `#version 300 es
+    in vec3 aPosition;
+    in vec3 aNormal;
+    uniform mat4 uModel, uView, uProjection;
+    out vec3 vNormal;
+    void main() {
+      gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
+      vNormal = mat3(uModel) * aNormal;
+    }`;
+
+    const fsSource = `#version 300 es
+    precision highp float;
+    in vec3 vNormal;
+    uniform vec3 uColor;
+    out vec4 fragColor;
+    void main() {
+      vec3 n = normalize(vNormal);
+      float l = dot(n, normalize(vec3(0.5,1.0,0.75))) * 0.5 + 0.5;
+      fragColor = vec4(uColor * l, 1.0);
+    }`;
+
+    const program = createProgram(vsSource, fsSource);
+    gl.useProgram(program);
+    const attribLoc = {
+      position: gl.getAttribLocation(program, 'aPosition'),
+      normal: gl.getAttribLocation(program, 'aNormal')
+    };
+    const uniLoc = {
+      model: gl.getUniformLocation(program, 'uModel'),
+      view: gl.getUniformLocation(program, 'uView'),
+      proj: gl.getUniformLocation(program, 'uProjection'),
+      color: gl.getUniformLocation(program, 'uColor')
+    };
+
+    function createPlane() {
+      const s = 10;
+      return {
+        pos: new Float32Array([-s,0,-s,  s,0,-s,  s,0,s,  -s,0,-s,  s,0,s,  -s,0,s]),
+        norm: new Float32Array([0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0]),
+        count: 6
+      };
+    }
+
+    function createCube() {
+      // 36 vertices (6 faces * 2 triangles * 3 vertices), each 3 components
+      const pos = new Float32Array([
+        // Front
+        -1,-1, 1,  1,-1, 1,  1, 1, 1,  -1,-1, 1,  1, 1, 1,  -1, 1, 1,
+        // Back
+        -1,-1,-1, -1, 1,-1,  1, 1,-1,  -1,-1,-1,  1, 1,-1,  1,-1,-1,
+        // Top
+        -1, 1,-1, -1, 1, 1,  1, 1, 1,  -1, 1,-1,  1, 1, 1,  1, 1,-1,
+        // Bottom
+        -1,-1,-1,  1,-1,-1,  1,-1, 1,  -1,-1,-1,  1,-1, 1, -1,-1, 1,
+        // Right
+         1,-1,-1,  1, 1,-1,  1, 1, 1,   1,-1,-1,  1, 1, 1,  1,-1, 1,
+        // Left
+        -1,-1,-1, -1,-1, 1, -1, 1, 1,  -1,-1,-1, -1, 1, 1, -1, 1,-1
+      ]);
+      const norm = new Float32Array([
+        // Front
+        0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,
+        // Back
+        0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,
+        // Top
+        0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,
+        // Bottom
+        0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,
+        // Right
+        1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,
+        // Left
+        -1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0
+      ]);
+      return { pos, norm, count: 36 };
+    }
+
+    function createSphere(lat=16, lon=16) {
+      const positions = [];
+      const normals = [];
+      const indices = [];
+      for (let y = 0; y <= lat; y++) {
+        const theta = y * Math.PI / lat;
+        const sinT = Math.sin(theta), cosT = Math.cos(theta);
+        for (let x = 0; x <= lon; x++) {
+          const phi = x * 2 * Math.PI / lon;
+          const sinP = Math.sin(phi), cosP = Math.cos(phi);
+          positions.push(cosP * sinT, cosT, sinP * sinT);
+          normals.push(cosP * sinT, cosT, sinP * sinT);
+        }
+      }
+      for (let y = 0; y < lat; y++) {
+        for (let x = 0; x < lon; x++) {
+          const a = y * (lon + 1) + x;
+          indices.push(a, a + 1, a + lon + 1);
+          indices.push(a + 1, a + lon + 2, a + lon + 1);
+        }
+      }
+      return { pos: new Float32Array(positions), norm: new Float32Array(normals), indices: new Uint16Array(indices), count: indices.length };
+    }
+
+    function setupVAO(data, useIndex = false) {
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      const bp = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, bp);
+      gl.bufferData(gl.ARRAY_BUFFER, data.pos, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(attribLoc.position);
+      gl.vertexAttribPointer(attribLoc.position, 3, gl.FLOAT, false, 0, 0);
+      const bn = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, bn);
+      gl.bufferData(gl.ARRAY_BUFFER, data.norm, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(attribLoc.normal);
+      gl.vertexAttribPointer(attribLoc.normal, 3, gl.FLOAT, false, 0, 0);
+      if (useIndex) {
+        const bi = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bi);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.indices, gl.STATIC_DRAW);
+      }
+      gl.bindVertexArray(null);
+      return vao;
+    }
+
+    const plane = createPlane();
+    const planeVAO = setupVAO(plane);
+    const cube = createCube();
+    const cubeVAO = setupVAO(cube);
+    const sphere = createSphere();
+    const sphereVAO = setupVAO(sphere, true);
+    const shapes = [];
+
+    const camPos = [0, 2, 5];
+    let yaw = 0, pitch = 0;
+    const moveSpeed = 3, yawSpeed = 0.005, pitchSpeed = 0.005;
+    const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+    document.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (k === 'w') keys.ArrowUp = true;
+      if (k === 's') keys.ArrowDown = true;
+      if (k === 'a') keys.ArrowLeft = true;
+      if (k === 'd') keys.ArrowRight = true;
+      if (e.key in keys) keys[e.key] = true;
+    });
+    document.addEventListener('keyup', e => {
+      const k = e.key.toLowerCase();
+      if (k === 'w') keys.ArrowUp = false;
+      if (k === 's') keys.ArrowDown = false;
+      if (k === 'a') keys.ArrowLeft = false;
+      if (k === 'd') keys.ArrowRight = false;
+      if (e.key in keys) keys[e.key] = false;
+    });
+
+    let isDragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener('mousedown', e => {
+      if (e.button === 2) {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else if (e.button === 0) {
+        placeObject(e);
+      }
+    });
+    window.addEventListener('mouseup', e => {
+      if (e.button === 2) isDragging = false;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (isDragging) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        yaw += dx * yawSpeed;
+        pitch -= dy * pitchSpeed;
+        pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
+    });    // Wheel to move forward/back (inverted)
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.01;  // inverted scroll
+      camPos[0] += Math.cos(pitch) * Math.sin(yaw) * delta;
+      camPos[1] += Math.sin(pitch) * delta;
+      camPos[2] -= Math.cos(pitch) * Math.cos(yaw) * delta;
+    });
+
+    function placeObject(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / canvas.width * 2 - 1;
+      const y = (canvas.height - (e.clientY - rect.top)) / canvas.height * 2 - 1;
+      const P = mat4.perspective(mat4.create(), Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
+      const dirX = Math.cos(pitch) * Math.sin(yaw);
+      const dirY = Math.sin(pitch);
+      const dirZ = Math.cos(pitch) * Math.cos(yaw);
+      const V = mat4.lookAt(mat4.create(), camPos, [camPos[0] + dirX, camPos[1] + dirY, camPos[2] - dirZ], [0,1,0]);
+      const inv = mat4.invert(mat4.create(), mat4.multiply(mat4.create(), P, V));
+      const near = vec4.transformMat4(vec4.create(), [x,y,-1,1], inv);
+      const far  = vec4.transformMat4(vec4.create(), [x,y, 1,1], inv);
+      [near, far].forEach(v => { v[0]/=v[3]; v[1]/=v[3]; v[2]/=v[3]; });
+      const dir = vec3.normalize(vec3.create(), vec3.subtract(vec3.create(), [far[0],far[1],far[2]], [near[0],near[1],near[2]]));
+      const t = -near[1] / dir[1];
+      const wx = near[0] + dir[0]*t;
+      const wz = near[2] + dir[2]*t;
+      const type = shapes.length % 2 === 0 ? 'cube' : 'sphere';
+      shapes.push({ type, pos: [wx,0,wz], color: [Math.random(),Math.random(),Math.random()] });
+    }
+
+    let lastTime = 0;
+    function render(time) {
+      const delta = (time - lastTime) * 0.001;
+      lastTime = time;
+      if (keys.ArrowUp) {
+        camPos[0] += Math.cos(pitch)*Math.sin(yaw)*moveSpeed*delta;
+        camPos[1] += Math.sin(pitch)*moveSpeed*delta;
+        camPos[2] -= Math.cos(pitch)*Math.cos(yaw)*moveSpeed*delta;
+      }
+      if (keys.ArrowDown) {
+        camPos[0] -= Math.cos(pitch)*Math.sin(yaw)*moveSpeed*delta;
+        camPos[1] -= Math.sin(pitch)*moveSpeed*delta;
+        camPos[2] += Math.cos(pitch)*Math.cos(yaw)*moveSpeed*delta;
+      }
+      const rightX = Math.cos(yaw);
+      const rightZ = Math.sin(yaw);
+      if (keys.ArrowRight) {
+        camPos[0] += rightX*moveSpeed*delta;
+        camPos[2] += rightZ*moveSpeed*delta;
+      }
+      if (keys.ArrowLeft) {
+        camPos[0] -= rightX*moveSpeed*delta;
+        camPos[2] -= rightZ*moveSpeed*delta;
+      }
+
+      resize();
+      gl.clearColor(0.5,0.7,1,1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+
+      gl.useProgram(program);
+      const P = mat4.perspective(mat4.create(), Math.PI/4, canvas.width/canvas.height, 0.1, 100);
+      const target = [camPos[0]+Math.cos(pitch)*Math.sin(yaw), camPos[1]+Math.sin(pitch), camPos[2]-Math.cos(pitch)*Math.cos(yaw)];
+      const V = mat4.lookAt(mat4.create(), camPos, target, [0,1,0]);
+      gl.uniformMatrix4fv(uniLoc.proj, false, P);
+      gl.uniformMatrix4fv(uniLoc.view, false, V);
+
+      // ground
+      gl.bindVertexArray(planeVAO);
+      gl.uniformMatrix4fv(uniLoc.model, false, mat4.create());
+      gl.uniform3fv(uniLoc.color, [0.6,0.6,0.6]);
+      gl.drawArrays(gl.TRIANGLES, 0, plane.count);
+
+      // shapes
+      shapes.forEach(o => {
+        const M = mat4.translate(mat4.create(), mat4.create(), o.pos);
+        gl.uniformMatrix4fv(uniLoc.model, false, M);
+        gl.uniform3fv(uniLoc.color, o.color);
+        if (o.type === 'cube') {
+          gl.bindVertexArray(cubeVAO);
+          gl.drawArrays(gl.TRIANGLES, 0, cube.count);
+        } else {
+          gl.bindVertexArray(sphereVAO);
+          gl.drawElements(gl.TRIANGLES, sphere.count, gl.UNSIGNED_SHORT, 0);
+        }
+      });
+
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>
