@@ -206,9 +206,77 @@
     });
 
     let isDragging = false, lastX = 0, lastY = 0;
-    let touchActiveCount = 0, touchPrevMidX = 0, touchPrevMidY = 0;
-    let touchTapStartX = 0, touchTapStartY = 0, touchTapMoved = false;
+    let touchActiveCount = 0;
+    let touchPrevMidX = 0, touchPrevMidY = 0;
+
+    // Mouse down/up/move for desktop
     canvas.addEventListener('mousedown', e => {
+      if (e.button === 2) {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else if (e.button === 0) {
+        placeObject(e);
+      }
+    });
+    window.addEventListener('mouseup', e => {
+      if (e.button === 2) isDragging = false;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (isDragging) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        yaw += dx * yawSpeed;
+        pitch -= dy * pitchSpeed;
+        pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
+    });
+
+    // Touch support
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      touchActiveCount = e.touches.length;
+      if (touchActiveCount === 1) {
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+      } else if (touchActiveCount >= 2) {
+        touchPrevMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        touchPrevMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      }
+    });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      touchActiveCount = e.touches.length;
+      if (touchActiveCount === 1) {
+        const t = e.touches[0];
+        const dx = t.clientX - lastX;
+        const dy = t.clientY - lastY;
+        yaw += dx * yawSpeed;
+        pitch -= dy * pitchSpeed;
+        pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+        lastX = t.clientX;
+        lastY = t.clientY;
+      } else if (touchActiveCount >= 2) {
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const dx = midX - touchPrevMidX;
+        const dy = midY - touchPrevMidY;
+        yaw += dx * yawSpeed;
+        pitch -= dy * pitchSpeed;
+        pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+        touchPrevMidX = midX;
+        touchPrevMidY = midY;
+      }
+    });
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      if (touchActiveCount === 1 && e.touches.length === 0) {
+        placeObject({ clientX: lastX, clientY: lastY, preventDefault: () => {} });
+      }
+      touchActiveCount = e.touches.length;
+    });, e => {
       if (e.button === 2) {
         isDragging = true;
         lastX = e.clientX;
