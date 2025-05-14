@@ -206,6 +206,8 @@
     });
 
     let isDragging = false, lastX = 0, lastY = 0;
+    let touchActiveCount = 0, touchPrevMidX = 0, touchPrevMidY = 0;
+    let touchTapStartX = 0, touchTapStartY = 0, touchTapMoved = false;
     canvas.addEventListener('mousedown', e => {
       if (e.button === 2) {
         isDragging = true;
